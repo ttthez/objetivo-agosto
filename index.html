@@ -157,6 +157,58 @@
   .venta-fila{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
   .venta-fila select{flex:2;min-width:150px}
   .venta-fila input{flex:0 0 90px}
+
+  .stock-comprometido{font-size:.78rem;color:var(--gris);font-weight:600}
+  .stock-comprometido.falta{color:var(--fuego-claro)}
+
+  .pedido-campos{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  input[type="time"]{flex:0 0 120px;color-scheme:dark}
+  .input-full{width:100%;flex:none;margin-bottom:10px}
+
+  .pedido{
+    padding:16px 0;border-bottom:1px solid var(--linea);
+  }
+  .pedido:last-child{border-bottom:none}
+  .pedido-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .pedido-cliente{font-weight:800;font-size:1rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pedido-cuando{font-size:.82rem;color:var(--crema-tenue);font-weight:600;white-space:nowrap}
+  .pedido-items{font-size:.9rem;color:var(--crema-tenue);margin-top:6px}
+  .pedido-items b{color:var(--crema)}
+  .pedido-mapa{
+    display:inline-block;margin-top:8px;font-size:.85rem;
+    color:var(--fuego-claro);text-decoration:underline;
+  }
+  .pedido-notas{font-size:.82rem;color:var(--gris);margin-top:6px;font-style:italic}
+  .pedido-acciones{display:flex;gap:14px;align-items:center;margin-top:12px;flex-wrap:wrap}
+
+  .badge{
+    font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+    padding:3px 9px;border-radius:999px;white-space:nowrap;
+  }
+  .badge-hoy{background:rgba(226,58,22,.18);color:var(--fuego-claro);border:1px solid rgba(226,58,22,.35)}
+  .badge-atrasado{background:rgba(226,58,22,.85);color:#fff}
+
+  .btn-mini{
+    font-weight:700;font-size:.85rem;padding:8px 16px;border-radius:10px;
+    border:none;cursor:pointer;font-family:inherit;
+    background:var(--verde);color:#fff;
+  }
+  .btn-mini:hover{background:#4ac26a}
+
+  .resumen{margin-bottom:22px;padding-bottom:20px;border-bottom:1px solid var(--linea)}
+  .resumen-total{
+    font-size:.78rem;color:var(--gris);text-transform:uppercase;
+    letter-spacing:.04em;margin-bottom:14px;
+  }
+  .resumen-total b{color:var(--crema);font-size:1.35rem;font-weight:900;letter-spacing:normal}
+  .resumen-fila{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+  .resumen-nombre{font-size:.88rem;font-weight:600;flex:0 0 108px}
+  .resumen-barra{flex:1;height:9px;background:var(--carbon);border-radius:999px;overflow:hidden;min-width:40px}
+  .resumen-barra i{
+    display:block;height:100%;border-radius:999px;
+    background:linear-gradient(90deg,var(--fuego),var(--fuego-claro));
+  }
+  .resumen-num{font-weight:800;font-size:.92rem;flex:0 0 34px;text-align:right}
 </style>
 </head>
 <body>
@@ -205,6 +257,23 @@
   </div>
 
   <div class="card">
+    <div class="card-titulo">Pedidos a entregar</div>
+    <div class="pedido-campos">
+      <input type="text" id="pedidoCliente" placeholder="Cliente (ej: Paula)">
+      <input type="date" id="pedidoFecha">
+      <input type="time" id="pedidoHora">
+    </div>
+    <input type="text" id="pedidoDireccion" class="input-full" placeholder="Dirección de entrega (ej: Av. Cabildo 1234)">
+    <input type="text" id="pedidoNotas" class="input-full" placeholder="Notas (opcional): tocar timbre 2B, sin picante…">
+    <div id="pedidoFilas"></div>
+    <div class="footer-row" style="justify-content:flex-start;margin:8px 0 18px">
+      <button type="button" class="link-btn" id="btnPedidoAgregarFila">+ Agregar otro sabor al pedido</button>
+    </div>
+    <button type="button" class="btn btn-fuego" id="btnAgendarPedido" style="width:100%">Agendar pedido</button>
+    <div class="lista" id="listaPedidos" style="margin-top:24px"></div>
+  </div>
+
+  <div class="card">
     <div class="lista" id="lista"></div>
   </div>
 
@@ -231,6 +300,7 @@
 
   <div class="card">
     <div class="card-titulo">Ventas de pizzas registradas</div>
+    <div id="resumenVentas"></div>
     <div class="lista" id="listaVentas"></div>
   </div>
 
@@ -248,15 +318,25 @@
   const FIREBASE_BASE = 'https://objetivo-julio-default-rtdb.firebaseio.com/';
   const INGRESOS_URL = FIREBASE_BASE + 'datos.json';
   const PIZZAS_URL = FIREBASE_BASE + 'pizzas.json';
+  const PEDIDOS_URL = FIREBASE_BASE + 'pedidos.json';
   const CACHE_KEY_INGRESOS = 'lasinergia_objetivo_julio_2026_cache';
   const CACHE_KEY_PIZZAS = 'lasinergia_objetivo_julio_2026_pizzas_cache';
+  const CACHE_KEY_PEDIDOS = 'lasinergia_objetivo_julio_2026_pedidos_cache';
   const SABORES_DEFAULT = ['Margarita','Honey pesto','Diavola','Di patate','Caramellata','4 Formaggi'];
 
   let items = [];
   let pizzas = { stock: [], ventas: [] };
+  let pedidos = [];
   let ventaDraft = [{ sabor: null, cantidad: 1 }];
+  let pedidoDraft = [{ sabor: null, cantidad: 1 }];
 
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+
+  // fecha local (no UTC), para que un pedido de las 22h no salte al día siguiente
+  function hoyISO(){
+    const d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  }
 
   function leerCache(key, fallback){
     try{
@@ -273,9 +353,20 @@
     if(!res.ok) throw new Error('status ' + res.status);
     return await res.json();
   }
+  // revLocal sube con cada cambio hecho desde este dispositivo;
+  // escrituras cuenta los guardados que todavía están viajando al servidor.
+  // Juntos evitan que la sincronización automática pise un cambio recién hecho.
+  let revLocal = 0;
+  let escrituras = 0;
+
   async function guardarJSON(url, data){
-    const res = await fetch(url, { method: 'PUT', body: JSON.stringify(data) });
-    if(!res.ok) throw new Error('status ' + res.status);
+    escrituras++;
+    try{
+      const res = await fetch(url, { method: 'PUT', body: JSON.stringify(data) });
+      if(!res.ok) throw new Error('status ' + res.status);
+    }finally{
+      escrituras--;
+    }
   }
 
   function setEstado(texto, ok){
@@ -285,37 +376,59 @@
   }
 
   async function refrescarTodo(mostrarCarga){
+    // si hay algo guardándose, no traemos nada: el servidor todavía tiene la versión vieja
+    if(escrituras > 0) return;
+
+    const rev = revLocal;
     if(mostrarCarga) setEstado('Actualizando…', true);
     let ok = true;
+    let nIngresos, nPizzas, nPedidos;
 
     try{
-      items = (await fetchJSON(INGRESOS_URL)) || [];
-      guardarCache(CACHE_KEY_INGRESOS, items);
+      nIngresos = (await fetchJSON(INGRESOS_URL)) || [];
     }catch(e){
-      items = leerCache(CACHE_KEY_INGRESOS, []);
+      nIngresos = leerCache(CACHE_KEY_INGRESOS, []);
       ok = false;
     }
 
     try{
       const remoto = await fetchJSON(PIZZAS_URL);
       if(remoto && Array.isArray(remoto.stock)){
-        pizzas = { stock: remoto.stock, ventas: Array.isArray(remoto.ventas) ? remoto.ventas : [] };
+        nPizzas = { stock: remoto.stock, ventas: Array.isArray(remoto.ventas) ? remoto.ventas : [] };
       }else{
-        pizzas = { stock: SABORES_DEFAULT.map(nombre => ({ nombre, cantidad: 0 })), ventas: [] };
-        await guardarJSON(PIZZAS_URL, pizzas);
+        nPizzas = { stock: SABORES_DEFAULT.map(nombre => ({ nombre, cantidad: 0 })), ventas: [] };
+        await guardarJSON(PIZZAS_URL, nPizzas);
       }
-      guardarCache(CACHE_KEY_PIZZAS, pizzas);
     }catch(e){
-      pizzas = leerCache(CACHE_KEY_PIZZAS, { stock: SABORES_DEFAULT.map(nombre => ({ nombre, cantidad: 0 })), ventas: [] });
+      nPizzas = leerCache(CACHE_KEY_PIZZAS, { stock: SABORES_DEFAULT.map(nombre => ({ nombre, cantidad: 0 })), ventas: [] });
       ok = false;
     }
+
+    try{
+      nPedidos = (await fetchJSON(PEDIDOS_URL)) || [];
+    }catch(e){
+      nPedidos = leerCache(CACHE_KEY_PEDIDOS, []);
+      ok = false;
+    }
+
+    // si mientras traíamos datos tocaste algo acá, descartamos lo del servidor
+    if(revLocal !== rev || escrituras > 0) return;
+
+    items = nIngresos;
+    pizzas = nPizzas;
+    pedidos = nPedidos;
+    guardarCache(CACHE_KEY_INGRESOS, items);
+    guardarCache(CACHE_KEY_PIZZAS, pizzas);
+    guardarCache(CACHE_KEY_PEDIDOS, pedidos);
 
     setEstado(ok ? 'Sincronizado ✓' : 'Sin conexión — mostrando última copia guardada', ok);
     renderIngresos();
     renderPizzas();
+    renderPedidos();
   }
 
   async function persistirIngresos(){
+    revLocal++;
     guardarCache(CACHE_KEY_INGRESOS, items);
     renderIngresos();
     try{
@@ -327,10 +440,24 @@
   }
 
   async function persistirPizzas(){
+    revLocal++;
     guardarCache(CACHE_KEY_PIZZAS, pizzas);
     renderPizzas();
     try{
       await guardarJSON(PIZZAS_URL, pizzas);
+      setEstado('Sincronizado ✓', true);
+    }catch(e){
+      setEstado('No se pudo sincronizar — vas a reintentar al actualizar', false);
+    }
+  }
+
+  async function persistirPedidos(){
+    revLocal++;
+    guardarCache(CACHE_KEY_PEDIDOS, pedidos);
+    renderPedidos();
+    renderStockLista();
+    try{
+      await guardarJSON(PEDIDOS_URL, pedidos);
       setEstado('Sincronizado ✓', true);
     }catch(e){
       setEstado('No se pudo sincronizar — vas a reintentar al actualizar', false);
@@ -415,17 +542,23 @@
       cont.innerHTML = '<div class="vacio">No hay sabores cargados todavía.</div>';
       return;
     }
-    cont.innerHTML = pizzas.stock.map(s => `
+    cont.innerHTML = pizzas.stock.map(s => {
+      const comp = comprometido(s.nombre);
+      const falta = comp > s.cantidad;
+      const nota = comp > 0
+        ? `<div class="stock-comprometido ${falta ? 'falta' : ''}">${comp} comprometidas${falta ? ` · faltan ${comp - s.cantidad}` : ''}</div>`
+        : '';
+      return `
       <div class="stock-item">
-        <div class="stock-nombre">${escapeHtml(s.nombre)}</div>
+        <div class="stock-nombre">${escapeHtml(s.nombre)}${nota}</div>
         <div class="stock-cantidad">${s.cantidad} u.</div>
         <div class="stock-acciones">
           <button class="link-btn" data-reponer="${escapeHtml(s.nombre)}">+ Reponer</button>
           <button class="link-btn" data-editar="${escapeHtml(s.nombre)}">Editar</button>
           <button class="item-del" data-quitar="${escapeHtml(s.nombre)}" title="Quitar sabor">✕</button>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
     cont.querySelectorAll('[data-reponer]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -461,8 +594,149 @@
     });
   }
 
+  // pizzas ya prometidas en pedidos agendados (todavía no entregados)
+  function comprometido(nombre){
+    return pedidos.reduce((tot, p) =>
+      tot + p.items.filter(i => i.nombre === nombre).reduce((s, i) => s + i.cantidad, 0), 0);
+  }
+
+  function renderPedidos(){
+    renderPedidoForm();
+    renderPedidosLista();
+  }
+
+  function renderPedidoForm(){
+    const cont = document.getElementById('pedidoFilas');
+    // no pisar lo que el usuario está tipeando/eligiendo justo ahora
+    if(cont.contains(document.activeElement)) return;
+
+    const nombres = pizzas.stock.map(s => s.nombre);
+    if(nombres.length === 0){
+      cont.innerHTML = '<div class="vacio">Agregá al menos un sabor en "Stock de pizzas" para poder agendar pedidos.</div>';
+      return;
+    }
+
+    pedidoDraft.forEach(f => { if(!nombres.includes(f.sabor)) f.sabor = nombres[0]; });
+
+    cont.innerHTML = pedidoDraft.map((fila, idx) => `
+      <div class="venta-fila">
+        <select class="pedido-select" data-idx="${idx}">
+          ${nombres.map(n => `<option value="${escapeHtml(n)}" ${n === fila.sabor ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+        </select>
+        <input type="number" class="pedido-cantidad" data-idx="${idx}" min="1" value="${fila.cantidad}">
+        ${pedidoDraft.length > 1 ? `<button type="button" class="item-del pedido-quitar" data-idx="${idx}">✕</button>` : ''}
+      </div>
+    `).join('');
+
+    cont.querySelectorAll('.pedido-select').forEach(sel => {
+      sel.addEventListener('change', () => { pedidoDraft[+sel.dataset.idx].sabor = sel.value; });
+    });
+    cont.querySelectorAll('.pedido-cantidad').forEach(inp => {
+      inp.addEventListener('input', () => { pedidoDraft[+inp.dataset.idx].cantidad = parseInt(inp.value) || 1; });
+    });
+    cont.querySelectorAll('.pedido-quitar').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pedidoDraft.splice(+btn.dataset.idx, 1);
+        renderPedidoForm();
+      });
+    });
+  }
+
+  function renderPedidosLista(){
+    const cont = document.getElementById('listaPedidos');
+    const hoy = hoyISO();
+    const ordenados = pedidos.slice().sort((a,b) =>
+      (a.fecha + (a.hora || '99:99')).localeCompare(b.fecha + (b.hora || '99:99')));
+
+    if(ordenados.length === 0){
+      cont.innerHTML = '<div class="vacio">No hay pedidos agendados.</div>';
+      return;
+    }
+
+    cont.innerHTML = ordenados.map(p => {
+      const totalPizzas = p.items.reduce((s,i) => s + i.cantidad, 0);
+      const detalle = p.items.map(i => `${i.cantidad}x ${escapeHtml(i.nombre)}`).join(', ');
+      let badge = '';
+      if(p.fecha < hoy) badge = '<span class="badge badge-atrasado">Atrasado</span>';
+      else if(p.fecha === hoy) badge = '<span class="badge badge-hoy">Hoy</span>';
+
+      const mapa = p.direccion
+        ? `<a class="pedido-mapa" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.direccion)}" target="_blank" rel="noopener">📍 ${escapeHtml(p.direccion)}</a>`
+        : '';
+      const notas = p.notas ? `<div class="pedido-notas">${escapeHtml(p.notas)}</div>` : '';
+
+      return `
+        <div class="pedido">
+          <div class="pedido-top">
+            <div class="pedido-cliente">${escapeHtml(p.cliente)} ${badge}</div>
+            <div class="pedido-cuando">${formatoFecha(p.fecha)}${p.hora ? ' · ' + p.hora : ''}</div>
+          </div>
+          <div class="pedido-items"><b>${totalPizzas} pizza${totalPizzas === 1 ? '' : 's'}</b> — ${detalle}</div>
+          ${mapa}
+          ${notas}
+          <div class="pedido-acciones">
+            <button type="button" class="btn-mini" data-entregar="${p.id}">Entregado ✓</button>
+            <button type="button" class="link-btn" data-borrar-pedido="${p.id}">Cancelar pedido</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    cont.querySelectorAll('[data-entregar]').forEach(btn => {
+      btn.addEventListener('click', () => entregarPedido(Number(btn.getAttribute('data-entregar'))));
+    });
+    cont.querySelectorAll('[data-borrar-pedido]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.getAttribute('data-borrar-pedido'));
+        const p = pedidos.find(x => x.id === id);
+        if(!p) return;
+        if(!confirm(`¿Cancelar el pedido de ${p.cliente}? No toca el stock.`)) return;
+        pedidos = pedidos.filter(x => x.id !== id);
+        persistirPedidos();
+      });
+    });
+  }
+
+  function entregarPedido(id){
+    const p = pedidos.find(x => x.id === id);
+    if(!p) return;
+    const totalPizzas = p.items.reduce((s,i) => s + i.cantidad, 0);
+    if(!confirm(`¿Marcar como entregado el pedido de ${p.cliente} (${totalPizzas} pizzas)? Se descuenta del stock.`)) return;
+
+    p.items.forEach(i => {
+      const s = pizzas.stock.find(x => x.nombre === i.nombre);
+      if(s) s.cantidad = Math.max(0, s.cantidad - i.cantidad);
+    });
+    pizzas.ventas.push({
+      id: Date.now(),
+      fecha: hoyISO(),
+      items: p.items.map(i => ({ nombre: i.nombre, cantidad: i.cantidad }))
+    });
+
+    pedidos = pedidos.filter(x => x.id !== id);
+
+    // guardamos primero: si tardás en contestar el monto, el pedido ya quedó entregado
+    persistirPizzas();
+    persistirPedidos();
+
+    const montoStr = prompt(`¿Cuánto cobraste por el pedido de ${p.cliente}? (dejalo vacío si todavía no cobrás)`, '');
+    if(montoStr !== null && montoStr.trim() !== ''){
+      const monto = parseFloat(montoStr);
+      if(monto > 0){
+        items.push({
+          id: Date.now() + 1,
+          fecha: hoyISO(),
+          desc: `${p.cliente} x${totalPizzas}`,
+          monto
+        });
+        persistirIngresos();
+      }
+    }
+  }
+
   function renderVentaForm(){
     const cont = document.getElementById('ventaFilas');
+    if(cont.contains(document.activeElement)) return;
+
     const nombres = pizzas.stock.map(s => s.nombre);
 
     if(nombres.length === 0){
@@ -500,7 +774,36 @@
     });
   }
 
+  function renderResumenVentas(){
+    const cont = document.getElementById('resumenVentas');
+    const porSabor = {};
+    pizzas.ventas.forEach(v => {
+      v.items.forEach(i => {
+        porSabor[i.nombre] = (porSabor[i.nombre] || 0) + i.cantidad;
+      });
+    });
+
+    const ranking = Object.entries(porSabor).sort((a,b) => b[1] - a[1]);
+    if(ranking.length === 0){ cont.innerHTML = ''; return; }
+
+    const total = ranking.reduce((s,[,n]) => s + n, 0);
+    const max = ranking[0][1];
+
+    cont.innerHTML = `
+      <div class="resumen">
+        <div class="resumen-total"><b>${total}</b> pizzas vendidas en total</div>
+        ${ranking.map(([nombre, cant]) => `
+          <div class="resumen-fila">
+            <div class="resumen-nombre">${escapeHtml(nombre)}</div>
+            <div class="resumen-barra"><i style="width:${(cant / max) * 100}%"></i></div>
+            <div class="resumen-num">${cant}</div>
+          </div>
+        `).join('')}
+      </div>`;
+  }
+
   function renderVentasLista(){
+    renderResumenVentas();
     const cont = document.getElementById('listaVentas');
     const ordenadas = pizzas.ventas.slice().sort((a,b) => b.id - a.id);
     if(ordenadas.length === 0){
@@ -569,6 +872,39 @@
     renderVentaForm();
   });
 
+  document.getElementById('btnPedidoAgregarFila').addEventListener('click', () => {
+    pedidoDraft.push({ sabor: null, cantidad: 1 });
+    renderPedidoForm();
+  });
+
+  document.getElementById('btnAgendarPedido').addEventListener('click', () => {
+    const cliente = document.getElementById('pedidoCliente').value.trim();
+    const fecha = document.getElementById('pedidoFecha').value;
+    const hora = document.getElementById('pedidoHora').value;
+    const direccion = document.getElementById('pedidoDireccion').value.trim();
+    const notas = document.getElementById('pedidoNotas').value.trim();
+
+    if(!cliente){ alert('Poné el nombre del cliente.'); return; }
+    if(!fecha){ alert('Elegí la fecha de entrega.'); return; }
+
+    const validas = pedidoDraft.filter(f => f.sabor && f.cantidad > 0);
+    if(validas.length === 0){ alert('Elegí al menos un sabor.'); return; }
+
+    pedidos.push({
+      id: Date.now(),
+      cliente, fecha, hora, direccion, notas,
+      items: validas.map(f => ({ nombre: f.sabor, cantidad: f.cantidad }))
+    });
+
+    document.getElementById('pedidoCliente').value = '';
+    document.getElementById('pedidoHora').value = '';
+    document.getElementById('pedidoDireccion').value = '';
+    document.getElementById('pedidoNotas').value = '';
+    pedidoDraft = [{ sabor: null, cantidad: 1 }];
+
+    persistirPedidos();
+  });
+
   document.getElementById('btnRegistrarVenta').addEventListener('click', () => {
     const validas = ventaDraft.filter(f => f.sabor && f.cantidad > 0);
     if(validas.length === 0) return;
@@ -584,7 +920,7 @@
 
     pizzas.ventas.push({
       id: Date.now(),
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: hoyISO(),
       items: detalle
     });
 
@@ -593,7 +929,7 @@
   });
 
   document.getElementById('btnExport').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({ ingresos: items, pizzas }, null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify({ ingresos: items, pizzas, pedidos }, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -617,9 +953,13 @@
           persistirIngresos();
         }else if(data && typeof data === 'object'){
           if(Array.isArray(data.ingresos)) items = data.ingresos;
-          if(data.pizzas && Array.isArray(data.pizzas.stock)) pizzas = data.pizzas;
+          if(data.pizzas && Array.isArray(data.pizzas.stock)){
+            pizzas = { stock: data.pizzas.stock, ventas: Array.isArray(data.pizzas.ventas) ? data.pizzas.ventas : [] };
+          }
+          if(Array.isArray(data.pedidos)) pedidos = data.pedidos;
           persistirIngresos();
           persistirPizzas();
+          persistirPedidos();
         }else{
           alert('El archivo no es un backup válido.');
         }
@@ -637,6 +977,7 @@
 
   // fecha de hoy por defecto
   document.getElementById('fecha').valueAsDate = new Date();
+  document.getElementById('pedidoFecha').value = hoyISO();
 
   document.getElementById('tituloPagina').textContent = `Objetivo ${MES} · La Sinergia`;
   document.getElementById('kicker').textContent = MES;
